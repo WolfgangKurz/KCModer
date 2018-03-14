@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27130.2010
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KCModer", "KCModer\KCModer.csproj", "{CD94A3CA-ED94-40B0-8912-BE5F4F04602B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nekoxy", "Nekoxy\Nekoxy.csproj", "{92DFA8A8-A110-4692-862D-7F0C229794B5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KCModerPatch", "KCModerPatch\KCModerPatch.csproj", "{FB80EAD2-DAB3-4943-99E9-610B4B338074}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CD94A3CA-ED94-40B0-8912-BE5F4F04602B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CD94A3CA-ED94-40B0-8912-BE5F4F04602B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CD94A3CA-ED94-40B0-8912-BE5F4F04602B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CD94A3CA-ED94-40B0-8912-BE5F4F04602B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{92DFA8A8-A110-4692-862D-7F0C229794B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{92DFA8A8-A110-4692-862D-7F0C229794B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{92DFA8A8-A110-4692-862D-7F0C229794B5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{92DFA8A8-A110-4692-862D-7F0C229794B5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FB80EAD2-DAB3-4943-99E9-610B4B338074}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB80EAD2-DAB3-4943-99E9-610B4B338074}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FB80EAD2-DAB3-4943-99E9-610B4B338074}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FB80EAD2-DAB3-4943-99E9-610B4B338074}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {A367B272-DC74-4E57-99B7-F7B006842259}
+	EndGlobalSection
+EndGlobal
