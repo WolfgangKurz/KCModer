@@ -13,54 +13,25 @@ namespace Nekoxy
 	/// 通信データを透過し読み取るためのProxyLogic。
 	/// Transfer-Encoding: chunked なHTTPリクエストの RequestBody の読み取りは未対応。
 	/// </summary>
-	internal class TransparentProxyLogic : ProxyLogic
+	public class TransparentProxyLogic : ProxyLogic
 	{
-		/// <summary>
-		/// HTTPレスポンスをプロキシ クライアントに送信完了した際に発生。
-		/// </summary>
 		public static event Action<Session> AfterSessionComplete;
-
-		/// <summary>
-		/// リクエストヘッダを読み込み完了した際に発生。
-		/// ボディは受信前。
-		/// </summary>
 		public static event Action<HttpRequest> AfterReadRequestHeaders;
-
-		/// <summary>
-		/// レスポンスヘッダを読み込み完了した際に発生。
-		/// ボディは受信前。
-		/// </summary>
 		public static event Action<HttpResponse> AfterReadResponseHeaders;
 
+		public static event Func<HttpRequest, bool> BeforeRequest;
+		public static event Func<Session, byte[], byte[]> BeforeResponse;
+
 		/// <summary>
-		/// 上流プロキシ設定。
+		/// Upstream proxy config
 		/// </summary>
 		public static ProxyConfig UpstreamProxyConfig { get; set; } = new ProxyConfig(ProxyConfigType.SystemProxy);
 
-		/// <summary>
-		/// TcpServerがインスタンスを生成する際に使用するメソッド。
-		/// 接続(AcceptCallback)の都度呼び出され、インスタンスが生成される。
-		/// </summary>
-		/// <param name="clientSocket">Browser-Proxy間Socket。SocketBP。</param>
-		/// <returns>ProxyLogicインスタンス。</returns>
 		public new static TransparentProxyLogic CreateProxy(HttpSocket clientSocket)
 			=> new TransparentProxyLogic(clientSocket);
 
-		/// <summary>
-		/// SocketBPからインスタンスを初期化。
-		/// 接続(AcceptCallback)の都度インスタンスが生成される。
-		/// </summary>
-		/// <param name="clientSocket">Browser-Proxy間Socket。SocketBP。</param>
 		public TransparentProxyLogic(HttpSocket clientSocket) : base(clientSocket) { }
 
-		/// <summary>
-		/// クライアントからリクエストヘッダまで読み込み、サーバーアクセス前のタイミング。
-		/// 上流プロキシの設定を行う。
-		/// </summary>
-		protected override void OnReceiveRequest()
-		{
-			this.SetUpstreamProxy();
-		}
 
 		private void SetUpstreamProxy()
 		{
@@ -78,12 +49,11 @@ namespace Nekoxy
 				return;
 			}
 
-			// システムプロキシ利用(既定)
 			var requestUri = this.GetEffectiveRequestUri();
 			if (requestUri != null)
 			{
 				var systemProxyConfig = WebRequest.GetSystemWebProxy();
-				if (systemProxyConfig.IsBypassed(requestUri)) return; //ダイレクトアクセス
+				if (systemProxyConfig.IsBypassed(requestUri)) return;
 				var systemProxy = systemProxyConfig.GetProxy(requestUri);
 
 				this.RelayHttpProxyHost = !systemProxy.IsOwnProxy() ? systemProxy.Host : null;
@@ -91,11 +61,10 @@ namespace Nekoxy
 			}
 			else
 			{
-				//リクエストURIをうまく組み立てられなかった場合、自動構成は諦めて通常のプロキシ設定を適用
 				var systemProxyHost = WinInetUtil.GetSystemHttpProxyHost();
 				var systemProxyPort = WinInetUtil.GetSystemHttpProxyPort();
 				if (systemProxyPort == HttpProxy.ListeningPort && systemProxyHost.IsLoopbackHost())
-					return; //自身が指定されていた場合上流には指定しない
+					return;
 				this.RelayHttpProxyHost = systemProxyHost;
 				this.RelayHttpProxyPort = systemProxyPort;
 			}
@@ -108,8 +77,7 @@ namespace Nekoxy
 
 			int destinationPort;
 			var originalUri = this.RequestLine.URI;
-			// Parse とか言いながら RequestLine.URI の書き換えが発生する場合がある
-			// authority-form で RelayHttpProxyHost が null の場合に発生
+
 			var destinationHost = this.ParseDestinationHostAndPort(this.RequestLine, this.RequestHeaders, out destinationPort);
 			this.RequestLine.URI = originalUri;
 			var isDefaultPort = destinationPort == (this.RequestLine.Method == "CONNECT" ? 443 : 80);
@@ -123,15 +91,24 @@ namespace Nekoxy
 		}
 
 		/// <summary>
-		/// SendResponseをoverrideし、リクエストデータを読み取る。
+		/// Override SendResponse to read request data
 		/// </summary>
 		protected override void SendRequest()
 		{
-			AfterReadRequestHeaders?.Invoke(new HttpRequest(this.RequestLine, this.RequestHeaders, null));
+			var req = new HttpRequest(this.RequestLine, this.RequestHeaders, null);
+
+			if (BeforeRequest != null)
+			{
+				if (!BeforeRequest.Invoke(req))
+				{
+					this.AbortRequest();
+					return;
+				}
+			}
+
+			AfterReadRequestHeaders?.Invoke(req);
 
 			this.currentSession = new Session();
-
-			//HTTPリクエストヘッダ送信
 			this.SocketPS.WriteBinary(Encoding.ASCII.GetBytes(
 				$"{this.RequestLine.RequestLine}\r\n{this.RequestHeaders.HeadersInOrder}\r\n"));
 
@@ -139,49 +116,34 @@ namespace Nekoxy
 			if (this.State.bRequestHasMessage)
 			{
 				if (this.State.bRequestMessageChunked)
-				{
-					//FIXME: chunked request のデータ読み取りは未対応
 					this.SocketBP.TunnelChunkedDataTo(this.SocketPS);
-				}
+
 				else
 				{
-					//Requestデータを読み取って流す
 					request = new byte[this.State.RequestMessageLength];
 					this.SocketBP.TunnelDataTo(request, this.State.RequestMessageLength);
 					this.SocketPS.TunnelDataTo(this.TunnelPS, request);
 				}
 			}
 			this.currentSession.Request = new HttpRequest(this.RequestLine, this.RequestHeaders, request);
-
-			//ReadResponseへ移行
 			this.State.NextStep = this.ReadResponse;
 		}
 
 		/// <summary>
-		/// OnReceiveResponseをoverrideし、レスポンスデータを読み取る。
+		/// Override OnReceiveResponse to read response data
 		/// </summary>
 		protected override void OnReceiveResponse()
 		{
+			#region Nekoxy Code
 			AfterReadResponseHeaders?.Invoke(new HttpResponse(this.ResponseStatusLine, this.ResponseHeaders, null));
 
-			//200だけ
 			if (this.ResponseStatusLine.StatusCode != 200) return;
 
-			// GetContentだけやるとサーバーからデータ全部読み込むけどクライアントに送らないってことになる。
-			// のでTransferEncodingとContentLengthを書き換えてchunkedじゃないレスポンスとしてクライアントに送信してやる必要がある。
-			// 
-			// RFC 7230 の 3.3.1 を見る限りだと、Transfer-Encoding はリクエスト/レスポンスチェーンにいるどの recipient も
-			// デコードしておっけーみたいに書いてあるから、HTTP的には問題なさそう。
-			// https://tools.ietf.org/html/rfc7230#section-3.3.1
-			// 
-			// ただ4.1.3のロジックとTrotiNetのとを見比べると trailer フィールドへの対応が足りてるのかどうか疑問が残る。
-			// https://tools.ietf.org/html/rfc7230#section-4.1.3
 			var response = this.ResponseHeaders.IsUnknownLength()
 				? this.GetContentWhenUnknownLength()
 				: this.GetContent();
-			this.State.NextStep = null; //既定の後続動作(SendResponse)をキャンセル(自前で送信処理を行う)
+			this.State.NextStep = null;
 
-			//Content-Encoding対応っぽい
 			using (var ms = new MemoryStream())
 			{
 				var stream = this.GetResponseMessageStream(response);
@@ -189,36 +151,38 @@ namespace Nekoxy
 				var content = ms.ToArray();
 				this.currentSession.Response = new HttpResponse(this.ResponseStatusLine, this.ResponseHeaders, content);
 			}
+			#endregion
 
-			// Transfer-Encoding: Chunked をやめて Content-Length を使うようヘッダ書き換え
+			if (BeforeResponse != null)
+			{
+				response = BeforeResponse?.Invoke(this.currentSession, this.currentSession.Response.Body);
+				this.ResponseHeaders.ContentEncoding = null; // remove gzip and chunked...
+			}
+
+			#region Nekoxy Code
 			this.ResponseHeaders.TransferEncoding = null;
 			this.ResponseHeaders.ContentLength = (uint)response.Length;
 
-			this.SendResponseStatusAndHeaders(); //クライアントにHTTPステータスとヘッダ送信
-			this.SocketBP.TunnelDataTo(this.TunnelBP, response); //クライアントにレスポンスボディ送信
+			this.SendResponseStatusAndHeaders(); // Send HTTP status & head to client
+			this.SocketBP.TunnelDataTo(this.TunnelBP, response); // Send response body to client
 
-			//keep-aliveとかじゃなかったら閉じる
 			if (!this.State.bPersistConnectionPS)
 			{
 				this.SocketPS?.CloseSocket();
 				this.SocketPS = null;
 			}
 
-			//AfterSessionCompleteイベント
 			AfterSessionComplete?.Invoke(this.currentSession);
+			#endregion
 		}
 
-		/// <summary>
-		/// Transfer-Encoding も Content-Length も不明の場合、TrotiNet の SendResponse() にならい、Socket.Receive() が 0 になるまで受ける。
-		/// </summary>
-		/// <returns></returns>
 		private byte[] GetContentWhenUnknownLength()
 		{
 			var buffer = new byte[512];
-			this.SocketPS.TunnelDataTo(ref buffer); // buffer の長さは内部で調整される
+			this.SocketPS.TunnelDataTo(ref buffer); // buffer will be re-allocated in TunnelDataTo function
 			return buffer;
 		}
 
-		private Session currentSession; //SendRequestで初期化してOnReceiveResponseの最後でイベントに投げる
+		private Session currentSession;
 	}
 }
